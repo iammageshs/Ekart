@@ -72,7 +72,7 @@ pipeline {
                 // Deploy to docker container
                 script {
                     withDockerServer([uri: "tcp://docker-server:2376"]) {
-                        sh "docker run -d --name shop-shop -p 9070:9070 maxhunt/shopping-cart:latest"
+                        sh "docker run -d --name shop-shop -p 8070:8070 maxhunt/shopping-cart:latest"
                     }
                 }
             }
