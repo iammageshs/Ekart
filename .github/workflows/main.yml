@@ -1,68 +1,59 @@
-name: CI/CD Pipeline
+name: Java CI/CD with Maven, SonarQube, and Docker
 
-on:
-  push:
-    branches:
-      - main
+on: [push]  # Trigger the workflow on push events
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest  # Use the latest Ubuntu runner
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-      
-    - name: Set up JDK 11
-      uses: actions/setup-java@v2
-      with:
-        java-version: '11'
-        
-    - name: Set up Maven
-      uses: actions/setup-java@v2
-      with:
-        java-version: '3.x'
-        maven-version: '3.x'
-        
-    - name: Download Sonar Scanner
-      run: |
-        curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.6.0.2311-linux.zip
-        unzip -q sonar-scanner.zip -d /opt
-        export PATH="$PATH:/opt/sonar-scanner-4.6.0.2311-linux/bin"
-        
-    - name: Git checkout
-      run: git checkout main
-      
-    - name: Maven compile
-      run: mvn clean compile -DskipTests=true
-      
-    - name: OWASP scan
-      run: |
-        # Run OWASP Dependency Check
-        # Add commands for scanning here
-        # Example:
-        # dependency-check --scan .
-        # mvn org.owasp:dependency-check-maven:5.2.2:check
-        
-    - name: SonarQube
-      run: |
-        sonar-scanner \
-          -Dsonar.projectName=Devops-Shopping-Cart \
-          -Dsonar.java.binaries=.
-          -Dsonar.projectKey=Devops-Shopping-Cart
-          
-    - name: Maven build
-      run: mvn clean package -DskipTests=true
-      
-    - name: Docker build and push
-      env:
-        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      run: |
-        docker build -t maxhunt/shopping-cart:latest -f docker/Dockerfile .
-        docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
-        docker push maxhunt/shopping-cart:latest
-        
-    - name: Deploy to Docker
-      run: |
-        docker run -d --name shop-shop -p 9070:9070 maxhunt/shopping-cart:latest
+      - uses: actions/checkout@v3  # Checkout the repository
+      - name: Set up JDK 11
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'adopt'
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v4
+        with:
+          maven-version: '3.8.5'
+      - name: Cache SonarScanner
+        uses: actions/cache@v3
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+      - name: Cache Maven packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+      - name: Maven compile
+        run: mvn clean compile -DskipTests=true
+      - name: OWASP scan
+        uses: gwen001/dependency-check-action@v2
+        with:
+          args: '--scan ./'
+      - name: SonarQube analysis
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}  # Required for GitHub integration
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}  # Required for SonarQube authentication
+      - name: Maven build
+        run: mvn clean package -DskipTests=true
+      - name: Docker build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: maxhunt/shopping-cart:latest
+          secrets: |
+            dockerhub-credentials=${{ secrets.DOCKERHUB_USERNAME }}
+            dockerhub-credentials=${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Deploy to Docker
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver-opts: network=host
+        run: docker run -d --name shop-shop -p 9070:9070 maxhunt/shopping-cart:latest
